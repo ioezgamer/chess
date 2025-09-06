@@ -3,10 +3,33 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import Papa from 'papaparse';
-import pool from './db.js'; // Asegúrate que db.js está en la misma carpeta
-import serverless from 'serverless-http'; // Crucial para Netlify
+import pg from 'pg'; // Usamos 'pg' directamente
+import serverless from 'serverless-http';
 
 dotenv.config();
+
+// --- LÓGICA DE CONEXIÓN A LA BASE DE DATOS (antes en db.js) ---
+// Extraemos el Pool de 'pg'
+const { Pool } = pg;
+
+// Creamos la conexión a la base de datos usando la variable de entorno
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: {
+        rejectUnauthorized: false
+    }
+});
+
+// Verificamos la conexión
+pool.connect((err, client, release) => {
+    if (err) {
+        return console.error('Error adquiriendo cliente para la base de datos', err.stack);
+    }
+    console.log('¡Conexión a la base de datos Neon establecida exitosamente!');
+    client.release();
+});
+// --- FIN DE LA LÓGICA DE CONEXIÓN ---
+
 
 const app = express();
 
