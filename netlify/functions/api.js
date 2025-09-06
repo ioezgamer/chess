@@ -24,15 +24,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Middleware para registrar la ruta real que recibe la función
-app.use((req, res, next) => {
-    // req.path nos dirá qué ruta ve la función DESPUÉS de la reescritura de Netlify
-    console.log(`Petición recibida en la ruta interna: ${req.path}`);
-    next();
-});
-
-// Usamos un router para anidar todas nuestras rutas.
-// Netlify reescribe /api/* a /*, por lo que nuestro router debe manejar las rutas sin el prefijo /api.
+// Creamos un router para anidar todas nuestras rutas.
 const router = express.Router();
 
 
@@ -44,7 +36,7 @@ router.get('/tournaments', async (req, res) => {
         const result = await pool.query('SELECT * FROM tournaments ORDER BY created_at DESC');
         res.json(result.rows);
     } catch (err) {
-        console.error(err);
+        console.error('Error fetching tournaments:', err);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -56,7 +48,7 @@ router.post('/tournaments', async (req, res) => {
         const result = await pool.query('INSERT INTO tournaments (name) VALUES ($1) RETURNING *', [name]);
         res.status(201).json(result.rows[0]);
     } catch (err) {
-        console.error(err);
+        console.error('Error creating tournament:', err);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -68,7 +60,7 @@ router.delete('/tournaments/:id', async (req, res) => {
         await pool.query('DELETE FROM tournaments WHERE id = $1', [id]);
         res.status(204).send();
     } catch (err) {
-        console.error(err);
+        console.error('Error deleting tournament:', err);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -80,7 +72,7 @@ router.get('/tournaments/:tournamentId/players', async (req, res) => {
         const result = await pool.query('SELECT * FROM players WHERE tournament_id = $1 ORDER BY name', [tournamentId]);
         res.json(result.rows);
     } catch (err) {
-        console.error(err);
+        console.error('Error fetching players:', err);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -102,7 +94,7 @@ router.post('/tournaments/:tournamentId/players', async (req, res) => {
         );
         res.status(201).json(result.rows[0]);
     } catch (err) {
-        console.error(err);
+        console.error('Error adding player:', err);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -130,7 +122,7 @@ router.post('/tournaments/:tournamentId/players/bulk', async (req, res) => {
         res.status(201).json({ importedCount, duplicatesCount });
     } catch (e) {
         await client.query('ROLLBACK');
-        console.error(e);
+        console.error('Error during bulk import transaction:', e);
         res.status(500).json({ error: 'Error en la transacción de importación' });
     } finally {
         client.release();
@@ -145,7 +137,7 @@ router.delete('/players/:id', async (req, res) => {
         await pool.query('DELETE FROM players WHERE id = $1', [id]);
         res.status(204).send();
     } catch (err) {
-        console.error(err);
+        console.error('Error deleting player:', err);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -167,7 +159,7 @@ router.get('/tournaments/:tournamentId/pairings', async (req, res) => {
         `, [tournamentId]);
         res.json(result.rows);
     } catch (err) {
-        console.error(err);
+        console.error('Error fetching pairings:', err);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -200,12 +192,14 @@ router.post('/tournaments/:tournamentId/pairings/generate', async (req, res) => 
                 }
             }
              // Si todos los de menor puntaje ya tuvieron bye, se asigna a uno de ellos.
-            if (!byePlayer) byePlayer = players[players.length - 1];
+            if (!byePlayer && players.length > 0) byePlayer = players[players.length - 1];
 
             // Asignar bye
-            await client.query('INSERT INTO pairings (tournament_id, round_number, white_id, result) VALUES ($1, $2, $3, $4)', [tournamentId, currentRound, byePlayer.id, '1-0']);
-            await client.query('UPDATE players SET points = points + 1 WHERE id = $1', [byePlayer.id]);
-            pairedIds.add(byePlayer.id);
+            if(byePlayer) {
+                await client.query('INSERT INTO pairings (tournament_id, round_number, white_id, result) VALUES ($1, $2, $3, $4)', [tournamentId, currentRound, byePlayer.id, '1-0']);
+                await client.query('UPDATE players SET points = points + 1 WHERE id = $1', [byePlayer.id]);
+                pairedIds.add(byePlayer.id);
+            }
         }
 
         players = players.filter(p => !pairedIds.has(p.id));
@@ -247,7 +241,7 @@ router.post('/tournaments/:tournamentId/pairings/generate', async (req, res) => 
         res.status(201).json({ message: `Emparejamientos para la ronda ${currentRound} generados.` });
     } catch (e) {
         await client.query('ROLLBACK');
-        console.error(e);
+        console.error('Error generating pairings:', e);
         res.status(500).json({ error: 'Error generando emparejamientos' });
     } finally {
         client.release();
@@ -293,7 +287,7 @@ router.put('/pairings/:id', async (req, res) => {
         res.status(200).json({ message: 'Resultado actualizado' });
     } catch (e) {
         await client.query('ROLLBACK');
-        console.error(e);
+        console.error('Error updating result:', e);
         res.status(500).json({ error: 'Error actualizando resultado' });
     } finally {
         client.release();
@@ -333,7 +327,7 @@ router.get('/tournaments/:tournamentId/export', async (req, res) => {
         res.send(csv);
 
     } catch (err) {
-        console.error(err);
+        console.error('Error exporting standings:', err);
         res.status(500).json({ error: 'Error al exportar los datos' });
     }
 });
@@ -341,10 +335,9 @@ router.get('/tournaments/:tournamentId/export', async (req, res) => {
 
 // --- FINALIZACIÓN DE LA CONFIGURACIÓN ---
 
-// Usamos el router en la ruta base.
-// ESTA ES LA CONFIGURACIÓN CORRECTA:
-// Netlify reescribe /api/* a /*, por lo que el router de Express no debe esperar el prefijo /api.
-app.use('/', router);
+// Usamos el router en la ruta base /api.
+// Esto asegura que las rutas como /api/tournaments sean manejadas correctamente.
+app.use('/api', router);
 
 // ¡ESTA ES LA LÍNEA MÁS IMPORTANTE!
 // Crea y exporta la "manija" llamada "handler" que Netlify necesita.
