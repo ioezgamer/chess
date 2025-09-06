@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Torneos de Ajedrez v2</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .tab-button.active {
+            color: #2563eb; /* text-blue-600 */
+            border-bottom-width: 2px;
+            border-color: #2563eb; /* border-blue-600 */
+            background-color: #eff6ff; /* bg-blue-50 */
+        }
+        .tab-button {
+             color: #4b5563; /* text-gray-600 */
+        }
+        #loadingOverlay {
+            transition: opacity 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-blue-50 min-h-screen text-gray-800">
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-white bg-opacity-75 z-50 flex items-center justify-center hidden">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-600"></div>
+    </div>
+
+    <div class="container mx-auto px-4 py-6 max-w-7xl">
+
+        <!-- Lobby View -->
+        <div id="lobbyView">
+            <div class="bg-white rounded-xl shadow-lg mb-6 p-6 border border-gray-200">
+                <div class="flex items-center space-x-3">
+                    <div class="w-12 h-12 bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg flex items-center justify-center text-white text-xl font-bold">♔</div>
+                    <div>
+                        <h1 class="text-2xl font-bold">Mis Torneos</h1>
+                        <p class="text-gray-600">Crea un nuevo torneo o gestiona uno existente.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Create Tournament Form -->
+                <div class="md:col-span-1 bg-white rounded-xl shadow-lg p-6 border border-gray-200">
+                    <h2 class="text-xl font-bold mb-4">Crear Nuevo Torneo</h2>
+                    <form id="createTournamentForm" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Nombre del Torneo</label>
+                            <input type="text" id="tournamentName" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Ej: Torneo Escolar 2025">
+                        </div>
+                        <button type="submit" class="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 transition transform hover:scale-105">
+                            Crear Torneo
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Tournaments List -->
+                <div class="md:col-span-2 bg-white rounded-xl shadow-lg p-6 border border-gray-200">
+                    <h2 class="text-xl font-bold mb-4">Historial de Torneos</h2>
+                    <div id="tournamentsList" class="space-y-3 max-h-96 overflow-y-auto">
+                        <!-- Torneos se cargarán aquí -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tournament View -->
+        <div id="tournamentView" class="hidden">
+            <!-- Header -->
+            <div class="bg-white rounded-xl shadow-lg mb-6 p-6 border border-gray-200">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                        <button onclick="showLobby()" class="text-blue-600 hover:text-blue-800 text-2xl">&larr;</button>
+                        <div>
+                            <h1 id="viewTournamentName" class="text-2xl font-bold text-gray-800">Nombre del Torneo</h1>
+                            <p class="text-gray-600">Sistema Suizo - Emparejamientos Automáticos</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-sm text-gray-500">Ronda Actual</div>
+                        <div class="text-2xl font-bold text-blue-600" id="currentRound">1</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Navigation Tabs -->
+            <div class="bg-white rounded-xl shadow-lg mb-6 border border-gray-200">
+                <div class="flex border-b border-gray-200">
+                    <button onclick="showTab('players')" class="tab-button px-6 py-4 font-medium active">👥 Jugadores</button>
+                    <button onclick="showTab('pairings')" class="tab-button px-6 py-4 font-medium">🎯 Emparejamientos</button>
+                    <button onclick="showTab('results')" class="tab-button px-6 py-4 font-medium">📊 Resultados</button>
+                    <button onclick="showTab('standings')" class="tab-button px-6 py-4 font-medium">🏆 Clasificación</button>
+                </div>
+            </div>
+
+            <!-- Players Tab -->
+            <div id="playersContent" class="tab-content">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Add Player Form -->
+                    <div class="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
+                        <h2 class="text-xl font-bold text-gray-800 mb-4">Registrar Jugador</h2>
+                        <form id="playerForm" class="space-y-4">
+                            <input type="text" id="playerName" required class="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder="Nombre Completo">
+                            <input type="text" id="playerGrade" required class="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder="Grado">
+                            <input type="text" id="playerSchool" required class="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder="Escuela">
+                            <button type="submit" class="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 rounded-lg font-medium">Registrar Jugador</button>
+                        </form>
+                        <div class="mt-6 pt-6 border-t">
+                            <h3 class="text-lg font-semibold mb-3">Importar desde CSV</h3>
+                            <input type="file" id="csvFile" accept=".csv" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                            <button onclick="importCSV()" class="w-full mt-3 bg-gradient-to-r from-green-600 to-teal-600 text-white py-2 rounded-lg font-medium">Importar Jugadores</button>
+                            <p class="text-xs text-gray-500 mt-2">Formato: Nombre,Grado,Escuela</p>
+                        </div>
+                    </div>
+                    <!-- Players List -->
+                    <div class="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-xl font-bold">Jugadores Registrados</h2>
+                            <span id="playerCount" class="text-sm bg-blue-100 text-blue-600 px-3 py-1 rounded-full font-medium">0</span>
+                        </div>
+                        <div id="playersList" class="space-y-3 max-h-96 overflow-y-auto"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pairings Tab -->
+            <div id="pairingsContent" class="tab-content hidden">
+                <div class="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-xl font-bold">Emparejamientos - Ronda <span id="pairingRound">1</span></h2>
+                        <button onclick="generatePairings()" id="generateBtn" class="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-6 py-2 rounded-lg font-medium">Generar Emparejamientos</button>
+                    </div>
+                    <div id="pairingsList" class="space-y-4"></div>
+                </div>
+            </div>
+
+            <!-- Results Tab -->
+            <div id="resultsContent" class="tab-content hidden">
+                <div class="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
+                    <h2 class="text-xl font-bold mb-6">Registrar Resultados - Ronda <span id="resultsRound">1</span></h2>
+                    <div id="resultsList" class="space-y-4"></div>
+                    <div id="nextRoundContainer" class="mt-6 text-center"></div>
+                </div>
+            </div>
+
+            <!-- Standings Tab -->
+            <div id="standingsContent" class="tab-content hidden">
+                <div class="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-xl font-bold">Clasificación General</h2>
+                        <button onclick="exportStandings()" class="bg-gradient-to-r from-teal-500 to-cyan-500 text-white px-6 py-2 rounded-lg font-medium">Exportar a CSV</button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead>
+                                <tr class="border-b-2">
+                                    <th class="text-left py-3 px-4 font-semibold">Pos</th>
+                                    <th class="text-left py-3 px-4 font-semibold">Jugador</th>
+                                    <th class="text-center py-3 px-4 font-semibold">Puntos</th>
+                                    <th class="text-center py-3 px-4 font-semibold">Buchholz</th>
+                                    <th class="text-center py-3 px-4 font-semibold">Partidas</th>
+                                </tr>
+                            </thead>
+                            <tbody id="standingsTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3001/api';
+        let currentTournamentId = null;
+        let currentTournamentName = null;
+
+        // --- LOBBY FUNCTIONS ---
+
+        function showLobby() {
+            document.getElementById('lobbyView').classList.remove('hidden');
+            document.getElementById('tournamentView').classList.add('hidden');
+            currentTournamentId = null;
+            currentTournamentName = null;
+            loadTournaments();
+        }
+
+        async function loadTournaments() {
+            showLoader();
+            try {
+                const response = await fetch(`${API_BASE_URL}/tournaments`);
+                const tournaments = await response.json();
+                const list = document.getElementById('tournamentsList');
+                if (tournaments.length === 0) {
+                    list.innerHTML = `<p class="text-center text-gray-500 py-8">No has creado ningún torneo todavía.</p>`;
+                    return;
+                }
+                list.innerHTML = tournaments.map(t => `
+                    <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg border hover:bg-gray-100">
+                        <div>
+                            <div class="font-semibold">${t.name}</div>
+                            <div class="text-sm text-gray-500">Creado: ${new Date(t.created_at).toLocaleDateString()}</div>
+                        </div>
+                        <div class="space-x-2">
+                            <button onclick="openTournament(${t.id}, '${t.name}')" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium">Abrir</button>
+                            <button onclick="deleteTournament(${t.id}, '${t.name}')" class="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium">Eliminar</button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading tournaments:', error);
+                alert('No se pudieron cargar los torneos. ¿Está el servidor funcionando?');
+            } finally {
+                hideLoader();
+            }
+        }
+
+        document.getElementById('createTournamentForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('tournamentName').value;
+            showLoader();
+            try {
+                const response = await fetch(`${API_BASE_URL}/tournaments`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                if (!response.ok) throw new Error('Failed to create tournament');
+                document.getElementById('createTournamentForm').reset();
+                loadTournaments();
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error al crear el torneo.');
+            } finally {
+                hideLoader();
+            }
+        });
+
+        async function deleteTournament(id, name) {
+            if (!confirm(`¿Estás seguro de que quieres eliminar el torneo "${name}"? Esta acción no se puede deshacer.`)) return;
+            showLoader();
+            try {
+                await fetch(`${API_BASE_URL}/tournaments/${id}`, { method: 'DELETE' });
+                loadTournaments();
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error al eliminar el torneo.');
+            } finally {
+                hideLoader();
+            }
+        }
+
+        // --- TOURNAMENT FUNCTIONS ---
+
+        function openTournament(id, name) {
+            currentTournamentId = id;
+            currentTournamentName = name;
+            document.getElementById('viewTournamentName').textContent = name;
+            document.getElementById('lobbyView').classList.add('hidden');
+            document.getElementById('tournamentView').classList.remove('hidden');
+            showTab('players');
+            loadTournamentData();
+        }
+
+        async function loadTournamentData() {
+            if (!currentTournamentId) return;
+            showLoader();
+            try {
+                await Promise.all([
+                    loadPlayers(),
+                    loadPairings()
+                ]);
+                updateAllDisplays();
+            } catch (error) {
+                console.error('Error loading tournament data:', error);
+            } finally {
+                hideLoader();
+            }
+        }
+
+        let players = [];
+        let pairings = [];
+        
+        async function loadPlayers() {
+            const response = await fetch(`${API_BASE_URL}/tournaments/${currentTournamentId}/players`);
+            players = await response.json();
+        }
+
+        async function loadPairings() {
+            const response = await fetch(`${API_BASE_URL}/tournaments/${currentTournamentId}/pairings`);
+            pairings = await response.json();
+        }
+
+        function updateAllDisplays() {
+            renderPlayersList();
+            renderPairingsList();
+            renderResults();
+            renderStandings();
+            updateCurrentRound();
+        }
+
+        function renderPlayersList() {
+            const list = document.getElementById('playersList');
+            document.getElementById('playerCount').textContent = players.length;
+            if (players.length === 0) {
+                list.innerHTML = `<p class="text-center text-gray-500 py-8">No hay jugadores registrados.</p>`;
+                return;
+            }
+            list.innerHTML = players.map(p => `
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg border">
+                    <div>
+                        <div class="font-semibold">${p.name}</div>
+                        <div class="text-sm text-gray-500">${p.grade} | ${p.school}</div>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                       <div class="text-lg font-bold text-blue-600">${parseFloat(p.points).toFixed(1)} pts</div>
+                       <button onclick="deletePlayer(${p.id}, '${p.name}')" class="text-red-500 hover:text-red-700 p-2 text-xl">🗑️</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        document.getElementById('playerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('playerName').value;
+            const grade = document.getElementById('playerGrade').value;
+            const school = document.getElementById('playerSchool').value;
+            showLoader();
+            try {
+                const response = await fetch(`${API_BASE_URL}/tournaments/${currentTournamentId}/players`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, grade, school })
+                });
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error);
+                }
+                document.getElementById('playerForm').reset();
+                await loadPlayers();
+                renderPlayersList();
+            } catch (error) {
+                alert(`Error al añadir jugador: ${error.message}`);
+            } finally {
+                hideLoader();
+            }
+        });
+
+        async function deletePlayer(id, name) {
+            if (!confirm(`¿Eliminar a ${name}?`)) return;
+            showLoader();
+            try {
+                await fetch(`${API_BASE_URL}/players/${id}`, { method: 'DELETE' });
+                await loadTournamentData();
+                updateAllDisplays();
+            } catch (error) {
+                alert('Error al eliminar jugador.');
+            } finally {
+                hideLoader();
+            }
+        }
+        
+        async function importCSV() {
+            const fileInput = document.getElementById('csvFile');
+            if (!fileInput.files[0]) return alert('Por favor, selecciona un archivo CSV.');
+            showLoader();
+            const reader = new FileReader();
+            reader.onload = async function(event) {
+                const text = event.target.result;
+                const lines = text.split('\n').filter(line => line.trim() !== '');
+                const playersToImport = lines.map(line => {
+                    const [name, grade, school] = line.split(',').map(s => s.trim());
+                    return { name, grade, school };
+                }).filter(p => p.name && p.grade && p.school);
+
+                try {
+                    const response = await fetch(`${API_BASE_URL}/tournaments/${currentTournamentId}/players/bulk`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ players: playersToImport })
+                    });
+                    const result = await response.json();
+                    alert(`Importación completada: ${result.importedCount} jugadores añadidos, ${result.duplicatesCount} duplicados omitidos.`);
+                    fileInput.value = '';
+                    await loadTournamentData();
+                    updateAllDisplays();
+                } catch (error) {
+                    alert('Error al importar jugadores.');
+                } finally {
+                    hideLoader();
+                }
+            };
+            reader.readAsText(fileInput.files[0]);
+        }
+
+        async function generatePairings() {
+            if (players.length < 2) return alert('Se necesitan al menos 2 jugadores.');
+            showLoader();
+            try {
+                await fetch(`${API_BASE_URL}/tournaments/${currentTournamentId}/pairings/generate`, { method: 'POST' });
+                await loadTournamentData();
+                updateAllDisplays();
+                showTab('pairings');
+            } catch (error) {
+                alert('Error al generar emparejamientos.');
+            } finally {
+                hideLoader();
+            }
+        }
+
+        function renderPairingsList() {
+            const list = document.getElementById('pairingsList');
+            const round = getCurrentRound();
+            const roundPairings = pairings.filter(p => p.round_number === round);
+
+            if (roundPairings.length === 0) {
+                list.innerHTML = `<p class="text-center text-gray-500 py-8">No hay emparejamientos para esta ronda. Haz clic en "Generar Emparejamientos".</p>`;
+                return;
+            }
+
+            list.innerHTML = roundPairings.map((p, index) => {
+                const resultDisplay = p.result ? `<div class="text-lg font-bold text-green-600">${p.result}</div>` : '';
+                const blackPlayerHTML = p.black_name 
+                    ? `<div><div class="font-semibold">${p.black_name}</div><div class="text-xs bg-gray-800 text-white px-2 py-1 rounded mt-1">Negras</div></div>`
+                    : `<div><div class="font-semibold text-gray-500">BYE</div><div class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded mt-1">+1 Punto</div></div>`;
+
+                return `
+                    <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg border">
+                        <div class="flex items-center space-x-4 text-center">
+                           <div class="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold">${index + 1}</div>
+                           <div><div class="font-semibold">${p.white_name}</div><div class="text-xs bg-white text-gray-700 px-2 py-1 rounded mt-1">Blancas</div></div>
+                           <div class="text-2xl text-gray-400">vs</div>
+                           ${blackPlayerHTML}
+                        </div>
+                        ${resultDisplay}
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function renderResults() {
+            const list = document.getElementById('resultsList');
+            const round = getCurrentRound();
+            const roundPairings = pairings.filter(p => p.round_number === round);
+
+            if (roundPairings.length === 0) {
+                list.innerHTML = `<p class="text-center text-gray-500 py-8">No hay partidas para registrar resultados.</p>`;
+                document.getElementById('nextRoundContainer').innerHTML = '';
+                return;
+            }
+
+            list.innerHTML = roundPairings.filter(p => p.black_id).map(p => `
+                <div class="p-4 bg-gray-50 rounded-lg border">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="font-semibold">${p.white_name} vs ${p.black_name}</div>
+                        <div class="font-bold text-lg ${p.result ? 'text-green-600' : 'text-orange-500'}">${p.result || 'Pendiente'}</div>
+                    </div>
+                    <div class="flex justify-center">
+                        <button onclick="showResultModal(${p.id}, '${p.white_name}', '${p.black_name}', '${p.result}')" class="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 text-sm font-medium">
+                          ${p.result && p.result !== 'null' ? '✏️ Corregir Resultado' : 'Registrar Resultado'}
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+
+            const allResultsIn = roundPairings.every(p => p.result);
+            if (allResultsIn) {
+                document.getElementById('nextRoundContainer').innerHTML = `<button onclick="nextRound()" class="w-full max-w-md mx-auto bg-gradient-to-r from-green-600 to-teal-600 text-white py-3 rounded-lg font-medium">Finalizar Ronda y Calcular Clasificación</button>`;
+            } else {
+                document.getElementById('nextRoundContainer').innerHTML = '';
+            }
+        }
+        
+        function showResultModal(pairingId, whiteName, blackName, currentResult) {
+            const result = prompt(`Resultado para ${whiteName} vs ${blackName}:\n1. Gana Blancas (1-0)\n2. Tablas (0.5-0.5)\n3. Gana Negras (0-1)\n\nIntroduce 1, 2, o 3.`, 
+                currentResult === '1-0' ? '1' : currentResult === '0.5-0.5' ? '2' : currentResult === '0-1' ? '3' : ''
+            );
+            
+            let newResult = null;
+            if (result === '1') newResult = '1-0';
+            else if (result === '2') newResult = '0.5-0.5';
+            else if (result === '3') newResult = '0-1';
+            
+            if(newResult) {
+                updateResult(pairingId, newResult);
+            }
+        }
+
+        async function updateResult(pairingId, newResult) {
+            showLoader();
+            try {
+                await fetch(`${API_BASE_URL}/pairings/${pairingId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ result: newResult })
+                });
+                await loadTournamentData();
+                updateAllDisplays();
+            } catch (error) {
+                alert('Error al actualizar resultado.');
+            } finally {
+                hideLoader();
+            }
+        }
+
+        async function nextRound() {
+            // La lógica de "siguiente ronda" ahora es simplemente generar nuevos emparejamientos
+            await generatePairings();
+        }
+
+        function renderStandings() {
+            const table = document.getElementById('standingsTable');
+            if (players.length === 0) {
+                table.innerHTML = `<tr><td colspan="5" class="text-center text-gray-500 py-8">No hay jugadores para mostrar.</td></tr>`;
+                return;
+            }
+
+            const playersWithBuchholz = players.map(player => {
+                const playerPairings = pairings.filter(p => p.white_id === player.id || p.black_id === player.id);
+                const opponentIds = playerPairings.map(p => p.white_id === player.id ? p.black_id : p.white_id).filter(Boolean);
+                const buchholz = opponentIds.reduce((sum, oppId) => {
+                    const opponent = players.find(p => p.id === oppId);
+                    return sum + (opponent ? parseFloat(opponent.points) : 0);
+                }, 0);
+                return { ...player, buchholz, games_played: opponentIds.length };
+            }).sort((a,b) => b.points - a.points || b.buchholz - a.buchholz);
+
+            table.innerHTML = playersWithBuchholz.map((p, index) => `
+                <tr class="border-b border-gray-100 hover:bg-gray-50">
+                    <td class="py-3 px-4 font-semibold">${index + 1}</td>
+                    <td class="py-3 px-4">
+                        <div class="font-semibold">${p.name}</div>
+                        <div class="text-sm text-gray-500">${p.school}</div>
+                    </td>
+                    <td class="py-3 px-4 text-center font-bold text-blue-600 text-lg">${parseFloat(p.points).toFixed(1)}</td>
+                    <td class="py-3 px-4 text-center">${p.buchholz.toFixed(1)}</td>
+                    <td class="py-3 px-4 text-center">${p.games_played}</td>
+                </tr>
+            `).join('');
+        }
+        
+        async function exportStandings() {
+            showLoader();
+            try {
+                const response = await fetch(`${API_BASE_URL}/tournaments/${currentTournamentId}/export`);
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = `clasificacion_${currentTournamentName.replace(/\s+/g, '_')}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
+            } catch (error) {
+                alert('Error al exportar los datos.');
+            } finally {
+                hideLoader();
+            }
+        }
+
+        // --- UTILITY FUNCTIONS ---
+        
+        function getCurrentRound() {
+            return pairings.length > 0 ? Math.max(...pairings.map(p => p.round_number)) : 1;
+        }
+
+        function updateCurrentRound() {
+            const round = getCurrentRound();
+            document.getElementById('currentRound').textContent = round;
+            document.getElementById('pairingRound').textContent = round;
+            document.getElementById('resultsRound').textContent = round;
+        }
+
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+            document.getElementById(tabName + 'Content').classList.remove('hidden');
+            document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+            document.querySelector(`.tab-button[onclick="showTab('${tabName}')"]`).classList.add('active');
+        }
+
+        function showLoader() { document.getElementById('loadingOverlay').classList.remove('hidden'); }
+        function hideLoader() { document.getElementById('loadingOverlay').classList.add('hidden'); }
+
+        // Initial Load
+        document.addEventListener('DOMContentLoaded', showLobby);
+    </script>
+</body>
+</html>
+
