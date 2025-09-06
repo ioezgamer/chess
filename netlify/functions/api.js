@@ -359,7 +359,7 @@ router.get('/tournaments/:tournamentId/export', async (req, res) => {
 // --- FINALIZACIÓN DE LA CONFIGURACIÓN ---
 
 // Usamos el router en la ruta base /api
-app.use('/api', router);
+app.use('/', router);
 
 // ¡ESTA ES LA LÍNEA MÁS IMPORTANTE!
 // Crea y exporta la "manija" llamada "handler" que Netlify necesita.
