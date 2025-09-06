@@ -1,33 +1,20 @@
-// Importar módulos
 import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import Papa from 'papaparse';
-import pg from 'pg'; // Usamos 'pg' directamente
 import serverless from 'serverless-http';
+import cors from 'cors';
+import pg from 'pg';
+import papaparse from 'papaparse';
 
-dotenv.config();
-
-// --- LÓGICA DE CONEXIÓN A LA BASE DE DATOS (antes en db.js) ---
-// Extraemos el Pool de 'pg'
-const { Pool } = pg;
-
-// Creamos la conexión a la base de datos usando la variable de entorno
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: {
-        rejectUnauthorized: false
-    }
-});
-
-// Verificamos la conexión
-pool.connect((err, client, release) => {
-    if (err) {
-        return console.error('Error adquiriendo cliente para la base de datos', err.stack);
-    }
-    console.log('¡Conexión a la base de datos Neon establecida exitosamente!');
-    client.release();
-});
+// --- LÓGICA DE CONEXIÓN A LA BASE DE DATOS ---
+// Esta lógica se ejecuta una sola vez cuando la función se "despierta".
+let pool;
+try {
+    pool = new pg.Pool({
+        connectionString: process.env.DATABASE_URL,
+    });
+    console.log("¡Conexión a la base de datos Neon establecida exitosamente!");
+} catch (error) {
+    console.error("Error al conectar con la base de datos Neon:", error);
+}
 // --- FIN DE LA LÓGICA DE CONEXIÓN ---
 
 
@@ -37,83 +24,90 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Creamos un router para anidar todas nuestras rutas bajo /api
+// Middleware para registrar la ruta real que recibe la función
+app.use((req, res, next) => {
+    // req.path nos dirá qué ruta ve la función DESPUÉS de la reescritura de Netlify
+    console.log(`Petición recibida en la ruta interna: ${req.path}`);
+    next();
+});
+
+// Usamos un router para anidar todas nuestras rutas.
+// Netlify reescribe /api/* a /*, por lo que nuestro router debe manejar las rutas sin el prefijo /api.
 const router = express.Router();
+
 
 // --- RUTAS DE LA API (COMPLETAS) ---
 
-// -- Torneos --
+// OBTENER TODOS LOS TORNEOS
 router.get('/tournaments', async (req, res) => {
     try {
-        const { rows } = await pool.query('SELECT * FROM tournaments ORDER BY created_at DESC');
-        res.json(rows);
-    } catch (error) {
-        console.error('Error fetching tournaments:', error);
+        const result = await pool.query('SELECT * FROM tournaments ORDER BY created_at DESC');
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
+// CREAR UN NUEVO TORNEO
 router.post('/tournaments', async (req, res) => {
-    const { name } = req.body;
-    if (!name) {
-        return res.status(400).json({ error: 'El nombre del torneo es requerido.' });
-    }
     try {
-        const { rows } = await pool.query(
-            'INSERT INTO tournaments (name) VALUES ($1) RETURNING *',
-            [name]
-        );
-        res.status(201).json(rows[0]);
-    } catch (error) {
-        console.error('Error creating tournament:', error);
+        const { name } = req.body;
+        const result = await pool.query('INSERT INTO tournaments (name) VALUES ($1) RETURNING *', [name]);
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error(err);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
+// ELIMINAR UN TORNEO
 router.delete('/tournaments/:id', async (req, res) => {
-    const { id } = req.params;
     try {
+        const { id } = req.params;
         await pool.query('DELETE FROM tournaments WHERE id = $1', [id]);
         res.status(204).send();
-    } catch (error) {
-        console.error('Error deleting tournament:', error);
+    } catch (err) {
+        console.error(err);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
-// -- Jugadores --
+// OBTENER JUGADORES DE UN TORNEO
 router.get('/tournaments/:tournamentId/players', async (req, res) => {
-    const { tournamentId } = req.params;
     try {
-        const { rows } = await pool.query('SELECT * FROM players WHERE tournament_id = $1 ORDER BY name', [tournamentId]);
-        res.json(rows);
-    } catch (error) {
-        console.error('Error fetching players:', error);
+        const { tournamentId } = req.params;
+        const result = await pool.query('SELECT * FROM players WHERE tournament_id = $1 ORDER BY name', [tournamentId]);
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
+// AÑADIR UN JUGADOR A UN TORNEO
 router.post('/tournaments/:tournamentId/players', async (req, res) => {
-    const { tournamentId } = req.params;
-    const { name, grade, school } = req.body;
-    if (!name || !grade || !school) {
-        return res.status(400).json({ error: 'Nombre, grado y escuela son requeridos.' });
-    }
     try {
-        const { rows } = await pool.query(
+        const { tournamentId } = req.params;
+        const { name, grade, school } = req.body;
+
+        const existingPlayer = await pool.query('SELECT * FROM players WHERE tournament_id = $1 AND lower(name) = lower($2)', [tournamentId, name]);
+        if (existingPlayer.rows.length > 0) {
+            return res.status(409).json({ error: 'Este jugador ya está registrado en el torneo.' });
+        }
+
+        const result = await pool.query(
             'INSERT INTO players (tournament_id, name, grade, school) VALUES ($1, $2, $3, $4) RETURNING *',
             [tournamentId, name, grade, school]
         );
-        res.status(201).json(rows[0]);
-    } catch (error) {
-         if (error.code === '23505') { // Unique constraint violation
-            return res.status(409).json({ error: `El jugador "${name}" ya existe en este torneo.` });
-        }
-        console.error('Error adding player:', error);
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error(err);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
+// IMPORTAR JUGADORES EN MASA
 router.post('/tournaments/:tournamentId/players/bulk', async (req, res) => {
     const { tournamentId } = req.params;
     const { players } = req.body;
@@ -124,208 +118,198 @@ router.post('/tournaments/:tournamentId/players/bulk', async (req, res) => {
     try {
         await client.query('BEGIN');
         for (const player of players) {
-            try {
-                await client.query(
-                    'INSERT INTO players (tournament_id, name, grade, school) VALUES ($1, $2, $3, $4)',
-                    [tournamentId, player.name, player.grade, player.school]
-                );
+            const existing = await client.query('SELECT id FROM players WHERE tournament_id = $1 AND lower(name) = lower($2)', [tournamentId, player.name]);
+            if (existing.rows.length === 0) {
+                await client.query('INSERT INTO players (tournament_id, name, grade, school) VALUES ($1, $2, $3, $4)', [tournamentId, player.name, player.grade, player.school]);
                 importedCount++;
-            } catch (error) {
-                if (error.code === '23505') {
-                    duplicatesCount++;
-                } else {
-                    throw error;
-                }
+            } else {
+                duplicatesCount++;
             }
         }
         await client.query('COMMIT');
-        res.json({ importedCount, duplicatesCount });
-    } catch (error) {
+        res.status(201).json({ importedCount, duplicatesCount });
+    } catch (e) {
         await client.query('ROLLBACK');
-        console.error('Error bulk inserting players:', error);
-        res.status(500).json({ error: 'Error en la importación masiva.' });
+        console.error(e);
+        res.status(500).json({ error: 'Error en la transacción de importación' });
     } finally {
         client.release();
     }
 });
 
+
+// ELIMINAR UN JUGADOR
 router.delete('/players/:id', async (req, res) => {
-    const { id } = req.params;
     try {
+        const { id } = req.params;
         await pool.query('DELETE FROM players WHERE id = $1', [id]);
         res.status(204).send();
-    } catch (error) {
-        console.error('Error deleting player:', error);
+    } catch (err) {
+        console.error(err);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
-// -- Emparejamientos y Resultados --
+// OBTENER EMPAREJAMIENTOS DE UN TORNEO
 router.get('/tournaments/:tournamentId/pairings', async (req, res) => {
-    const { tournamentId } = req.params;
     try {
-        const { rows } = await pool.query(`
+        const { tournamentId } = req.params;
+        const result = await pool.query(`
             SELECT 
                 p.id, p.round_number, p.result,
-                p.white_id, p.black_id,
-                wp.name as white_name,
-                bp.name as black_name
+                wp.name as white_name, bp.name as black_name,
+                p.white_id, p.black_id
             FROM pairings p
-            LEFT JOIN players wp ON p.white_id = wp.id
+            JOIN players wp ON p.white_id = wp.id
             LEFT JOIN players bp ON p.black_id = bp.id
             WHERE p.tournament_id = $1
             ORDER BY p.round_number, p.id;
         `, [tournamentId]);
-        res.json(rows);
-    } catch (error) {
-        console.error('Error fetching pairings:', error);
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
+// GENERAR NUEVOS EMPAREJAMIENTOS
 router.post('/tournaments/:tournamentId/pairings/generate', async (req, res) => {
     const { tournamentId } = req.params;
     const client = await pool.connect();
-    
+
     try {
         await client.query('BEGIN');
-        
-        const playersResult = await client.query('SELECT * FROM players WHERE tournament_id = $1', [tournamentId]);
+        const playersResult = await client.query('SELECT * FROM players WHERE tournament_id = $1 ORDER BY points DESC, name ASC', [tournamentId]);
         let players = playersResult.rows;
-
-        if (players.length < 2) {
-            return res.status(400).json({ error: 'Se necesitan al menos 2 jugadores.' });
-        }
-
-        const pairingsResult = await client.query('SELECT * FROM pairings WHERE tournament_id = $1', [tournamentId]);
-        const allPairings = pairingsResult.rows;
         
-        const currentRound = allPairings.length > 0 ? Math.max(...allPairings.map(p => p.round_number)) + 1 : 1;
+        const lastRoundResult = await client.query('SELECT MAX(round_number) as max_round FROM pairings WHERE tournament_id = $1', [tournamentId]);
+        const currentRound = (lastRoundResult.rows[0].max_round || 0) + 1;
 
-        players.sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
-
-        let availablePlayers = [...players];
-        const newPairings = [];
+        let pairedIds = new Set();
         
-        if (availablePlayers.length % 2 !== 0) {
-            const byePlayers = players.filter(p => p.had_bye);
-            let playerToBye = availablePlayers.filter(p => !p.had_bye).sort((a, b) => a.points - b.points)[0];
-            if (!playerToBye) {
-                playerToBye = availablePlayers.sort((a, b) => a.points - b.points)[0];
-            }
-            
-            await client.query('UPDATE players SET points = points + 1, had_bye = TRUE WHERE id = $1', [playerToBye.id]);
-            newPairings.push({ white_id: playerToBye.id, black_id: null, result: '1-0' });
-            availablePlayers = availablePlayers.filter(p => p.id !== playerToBye.id);
-        }
-
-        const pairedIds = new Set();
-        for (const player1 of availablePlayers) {
-            if (pairedIds.has(player1.id)) continue;
-            
-            let opponent = null;
-            for (const player2 of availablePlayers) {
-                if (player1.id === player2.id || pairedIds.has(player2.id)) continue;
-
-                const havePlayed = allPairings.some(p =>
-                    (p.white_id === player1.id && p.black_id === player2.id) ||
-                    (p.white_id === player2.id && p.black_id === player1.id)
-                );
-                
-                if (!havePlayed) {
-                    opponent = player2;
+        // Manejar Bye (jugador impar)
+        if (players.length % 2 !== 0) {
+            let byePlayer = null;
+            // Buscar jugador con menos puntos que no haya tenido bye
+            for (let i = players.length - 1; i >= 0; i--) {
+                const p = players[i];
+                const byeResult = await client.query('SELECT id FROM pairings WHERE (white_id = $1 OR black_id = $1) AND black_id IS NULL AND tournament_id = $2', [p.id, tournamentId]);
+                if (byeResult.rows.length === 0) {
+                    byePlayer = p;
                     break;
                 }
             }
-            if (!opponent) { // Fallback if all have played
-                opponent = availablePlayers.find(p => p.id !== player1.id && !pairedIds.has(p.id));
+             // Si todos los de menor puntaje ya tuvieron bye, se asigna a uno de ellos.
+            if (!byePlayer) byePlayer = players[players.length - 1];
+
+            // Asignar bye
+            await client.query('INSERT INTO pairings (tournament_id, round_number, white_id, result) VALUES ($1, $2, $3, $4)', [tournamentId, currentRound, byePlayer.id, '1-0']);
+            await client.query('UPDATE players SET points = points + 1 WHERE id = $1', [byePlayer.id]);
+            pairedIds.add(byePlayer.id);
+        }
+
+        players = players.filter(p => !pairedIds.has(p.id));
+
+        for (let i = 0; i < players.length; i++) {
+            if (pairedIds.has(players[i].id)) continue;
+
+            const player1 = players[i];
+            let player2 = null;
+
+            for (let j = i + 1; j < players.length; j++) {
+                const candidate = players[j];
+                if (pairedIds.has(candidate.id)) continue;
+                
+                const prevGame = await client.query('SELECT id FROM pairings WHERE (white_id = $1 AND black_id = $2) OR (white_id = $2 AND black_id = $1)', [player1.id, candidate.id]);
+                if (prevGame.rows.length === 0) {
+                    player2 = candidate;
+                    break;
+                }
+            }
+             // Si no se encuentra oponente que no haya jugado, se toma el siguiente disponible
+            if (!player2) {
+                for (let j = i + 1; j < players.length; j++) {
+                    if (!pairedIds.has(players[j].id)) {
+                        player2 = players[j];
+                        break;
+                    }
+                }
             }
 
-            if (opponent) {
-                newPairings.push({ white_id: player1.id, black_id: opponent.id, result: null });
+            if (player2) {
+                await client.query('INSERT INTO pairings (tournament_id, round_number, white_id, black_id) VALUES ($1, $2, $3, $4)', [tournamentId, currentRound, player1.id, player2.id]);
                 pairedIds.add(player1.id);
-                pairedIds.add(opponent.id);
+                pairedIds.add(player2.id);
             }
-        }
-        
-        for (const p of newPairings) {
-            await client.query(
-                'INSERT INTO pairings (tournament_id, round_number, white_id, black_id, result) VALUES ($1, $2, $3, $4, $5)',
-                [tournamentId, currentRound, p.white_id, p.black_id, p.result]
-            );
         }
         
         await client.query('COMMIT');
-        res.status(201).json({ message: `Ronda ${currentRound} generada.` });
-
-    } catch (error) {
+        res.status(201).json({ message: `Emparejamientos para la ronda ${currentRound} generados.` });
+    } catch (e) {
         await client.query('ROLLBACK');
-        console.error('Error generating pairings:', error);
-        res.status(500).json({ error: 'Error interno del servidor al generar emparejamientos.' });
+        console.error(e);
+        res.status(500).json({ error: 'Error generando emparejamientos' });
     } finally {
         client.release();
     }
 });
 
+
+// ACTUALIZAR RESULTADO DE UN EMPAREJAMIENTO
 router.put('/pairings/:id', async (req, res) => {
     const { id } = req.params;
     const { result } = req.body;
-    
-    if (!['1-0', '0-1', '0.5-0.5'].includes(result)) {
-        return res.status(400).json({ error: 'Resultado no válido.' });
-    }
-
     const client = await pool.connect();
+
     try {
         await client.query('BEGIN');
         
-        const pairingRes = await client.query('SELECT * FROM pairings WHERE id = $1', [id]);
-        if (pairingRes.rows.length === 0) throw new Error('Emparejamiento no encontrado.');
-        
-        const pairing = pairingRes.rows[0];
-        
-        // Revertir puntos antiguos si existían
-        if (pairing.result) {
-            let oldWhitePoints = 0, oldBlackPoints = 0;
-            if (pairing.result === '1-0') oldWhitePoints = 1;
-            else if (pairing.result === '0-1') oldBlackPoints = 1;
-            else if (pairing.result === '0.5-0.5') { oldWhitePoints = 0.5; oldBlackPoints = 0.5; }
-            await client.query('UPDATE players SET points = points - $1 WHERE id = $2', [oldWhitePoints, pairing.white_id]);
-            await client.query('UPDATE players SET points = points - $1 WHERE id = $2', [oldBlackPoints, pairing.black_id]);
+        const pairing = (await client.query('SELECT * FROM pairings WHERE id = $1', [id])).rows[0];
+        if (!pairing) return res.status(404).json({error: "Emparejamiento no encontrado"});
+
+        const { white_id, black_id, result: old_result } = pairing;
+
+        // Anular puntos de resultado anterior si existía
+        if (old_result) {
+            if (old_result === '1-0') await client.query('UPDATE players SET points = points - 1 WHERE id = $1', [white_id]);
+            if (old_result === '0-1') await client.query('UPDATE players SET points = points - 1 WHERE id = $1', [black_id]);
+            if (old_result === '0.5-0.5') {
+                await client.query('UPDATE players SET points = points - 0.5 WHERE id = $1', [white_id]);
+                await client.query('UPDATE players SET points = points - 0.5 WHERE id = $1', [black_id]);
+            }
         }
-        
+
         // Aplicar nuevos puntos
-        let newWhitePoints = 0, newBlackPoints = 0;
-        if (result === '1-0') newWhitePoints = 1;
-        else if (result === '0-1') newBlackPoints = 1;
-        else if (result === '0.5-0.5') { newWhitePoints = 0.5; newBlackPoints = 0.5; }
-        
-        await client.query('UPDATE players SET points = points + $1 WHERE id = $2', [newWhitePoints, pairing.white_id]);
-        await client.query('UPDATE players SET points = points + $1 WHERE id = $2', [newBlackPoints, pairing.black_id]);
+        if (result === '1-0') await client.query('UPDATE players SET points = points + 1 WHERE id = $1', [white_id]);
+        if (result === '0-1') await client.query('UPDATE players SET points = points + 1 WHERE id = $1', [black_id]);
+        if (result === '0.5-0.5') {
+            await client.query('UPDATE players SET points = points + 0.5 WHERE id = $1', [white_id]);
+            await client.query('UPDATE players SET points = points + 0.5 WHERE id = $1', [black_id]);
+        }
         
         await client.query('UPDATE pairings SET result = $1 WHERE id = $2', [result, id]);
         
         await client.query('COMMIT');
-        res.json({ message: 'Resultado actualizado.' });
-
-    } catch (error) {
+        res.status(200).json({ message: 'Resultado actualizado' });
+    } catch (e) {
         await client.query('ROLLBACK');
-        console.error('Error updating result:', error);
-        res.status(500).json({ error: 'Error al actualizar el resultado.' });
+        console.error(e);
+        res.status(500).json({ error: 'Error actualizando resultado' });
     } finally {
         client.release();
     }
 });
 
-// -- Exportación --
+// EXPORTAR CLASIFICACIÓN A CSV
 router.get('/tournaments/:tournamentId/export', async (req, res) => {
-    const { tournamentId } = req.params;
     try {
-        const playersRes = await pool.query('SELECT * FROM players WHERE tournament_id = $1', [tournamentId]);
-        const players = playersRes.rows;
-        const pairingsRes = await pool.query('SELECT * FROM pairings WHERE tournament_id = $1', [tournamentId]);
-        const pairings = pairingsRes.rows;
-
+        const { tournamentId } = req.params;
+        const playersResult = await pool.query('SELECT * FROM players WHERE tournament_id = $1', [tournamentId]);
+        const players = playersResult.rows;
+        
+        const pairingsResult = await pool.query('SELECT * FROM pairings WHERE tournament_id = $1', [tournamentId]);
+        const pairings = pairingsResult.rows;
+        
         const standings = players.map(player => {
             const playerPairings = pairings.filter(p => p.white_id === player.id || p.black_id === player.id);
             const opponentIds = playerPairings.map(p => p.white_id === player.id ? p.black_id : p.white_id).filter(Boolean);
@@ -335,30 +319,31 @@ router.get('/tournaments/:tournamentId/export', async (req, res) => {
             }, 0);
             return {
                 Nombre: player.name,
+                Escuela: player.school,
+                Grado: player.grade,
                 Puntos: parseFloat(player.points).toFixed(1),
                 Buchholz: buchholz.toFixed(1),
                 Partidas: opponentIds.length,
-                Grado: player.grade,
-                Escuela: player.school
             };
         }).sort((a,b) => b.Puntos - a.Puntos || b.Buchholz - a.Buchholz);
 
-        const csv = Papa.unparse(standings.map((p, i) => ({ Pos: i + 1, ...p })));
-        
+        const csv = papaparse.unparse(standings);
         res.header('Content-Type', 'text/csv');
         res.attachment('clasificacion.csv');
         res.send(csv);
 
-    } catch (error) {
-        console.error('Error exporting standings:', error);
-        res.status(500).json({ error: 'Error al exportar.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Error al exportar los datos' });
     }
 });
 
 
 // --- FINALIZACIÓN DE LA CONFIGURACIÓN ---
 
-// Usamos el router en la ruta base /api
+// Usamos el router en la ruta base.
+// ESTA ES LA CONFIGURACIÓN CORRECTA:
+// Netlify reescribe /api/* a /*, por lo que el router de Express no debe esperar el prefijo /api.
 app.use('/', router);
 
 // ¡ESTA ES LA LÍNEA MÁS IMPORTANTE!
