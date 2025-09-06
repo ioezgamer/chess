@@ -1,0 +1,16 @@
+# Configuración de construcción
+[build]
+  # Directorio donde Netlify encontrará tu index.html
+  publish = "/"
+  # Directorio donde están las funciones serverless
+  functions = "netlify/functions/"
+
+# Redirección de la API a la función serverless
+[[redirects]]
+  # Todas las peticiones que empiecen con /api/...
+  from = "/api/*"
+  # ...serán enviadas a la función 'api' con el prefijo /api/ intacto
+  to = "/.netlify/functions/api/:splat"
+  # Código de estado 200 significa que es una reescritura, no una redirección
+  status = 200
+
