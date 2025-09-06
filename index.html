@@ -191,7 +191,7 @@
         async function loadTournaments() {
             showLoader();
             try {
-                const response = await fetch(`${API_BASE_URL}/tournaments`);
+                const response = await fetch(`${API_BASE_URL}/`);
                 const tournaments = await response.json();
                 const list = document.getElementById('tournamentsList');
                 if (tournaments.length === 0) {
