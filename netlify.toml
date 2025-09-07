@@ -9,8 +9,7 @@
 [[redirects]]
   # Todas las peticiones que empiecen con /api/...
   from = "/api/*"
-  # ...serán enviadas a la función 'api' con el prefijo /api/ intacto
+  # ...serán enviadas a la función 'api'
   to = "/.netlify/functions/api/:splat"
   # Código de estado 200 significa que es una reescritura, no una redirección
   status = 200
-

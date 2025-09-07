@@ -177,6 +177,91 @@
         const API_BASE_URL = '/api';
         let currentTournamentId = null;
         let currentTournamentName = null;
+        // --- AUTHENTICATION LOGIC ---
+
+        function toggleAuthForms() {
+            document.getElementById('loginForm').classList.toggle('hidden');
+            document.getElementById('registerForm').classList.toggle('hidden');
+        }
+        
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            try {
+                const res = await fetch(`${API_BASE_URL}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.error);
+                }
+                const { accessToken } = await res.json();
+                localStorage.setItem('token', accessToken);
+                initializeApp();
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        });
+
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('registerEmail').value;
+            const password = document.getElementById('registerPassword').value;
+            try {
+                const res = await fetch(`${API_BASE_URL}/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                if (!res.ok) {
+                     const err = await res.json();
+                    throw new Error(err.error);
+                }
+                alert('¡Registro exitoso! Por favor, inicia sesión.');
+                toggleAuthForms();
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        });
+        
+        function logout() {
+            localStorage.removeItem('token');
+            document.getElementById('appContainer').classList.add('hidden');
+            document.getElementById('authView').classList.remove('hidden');
+        }
+        
+        function getAuthHeaders() {
+            const token = localStorage.getItem('token');
+            return {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            };
+        }
+        
+        function parseJwt(token) {
+            try {
+                return JSON.parse(atob(token.split('.')[1]));
+            } catch (e) {
+                return null;
+            }
+        }
+
+        async function apiFetch(url, options = {}) {
+            const res = await fetch(url, { ...options, headers: getAuthHeaders() });
+            if (res.status === 401 || res.status === 403) {
+                logout();
+                throw new Error('Sesión inválida o expirada.');
+            }
+            if (!res.ok) {
+                const errorData = await res.json().catch(() => ({ error: 'Error desconocido' }));
+                throw new Error(errorData.error);
+            }
+             if (res.status === 204) return null; // No content
+            return res.json();
+        }
 
         // --- LOBBY FUNCTIONS ---
 
